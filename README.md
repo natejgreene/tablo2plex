@@ -124,7 +124,10 @@ You can add your own custom M3U8 stream channels to the lineup by configuring th
 CUSTOM_CHANNELS=[{"name":"MN Traffic Cam","number":"900.1","url":"https://video.dot.state.mn.us/public/C1495.stream/playlist.m3u8"},{"name":"Another Stream","number":"900.2","url":"https://example.com/stream.m3u8"}]
 ```
 
-**Note:** Custom channels bypass Tablo authentication and stream directly from the provided URLs. They don't count against your Tablo tuner limit.
+**Features:**
+- Custom channels bypass Tablo authentication and stream directly from the provided URLs
+- They don't count against your Tablo tuner limit
+- When XML guide generation is enabled (`CREATE_XML=true`), custom channels automatically get 24/7 guide data showing the channel name
 
 ### Plex Configuration
 
