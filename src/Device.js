@@ -1172,6 +1172,68 @@ async function parseGuideData(lineUp) {
             }
         }
 
+        // Add custom channels to guide with 24/7 fake data
+        if (CUSTOM_CHANNELS && CUSTOM_CHANNELS.length > 0) {
+            for (let i = 0; i < CUSTOM_CHANNELS.length; i++) {
+                const customChannel = CUSTOM_CHANNELS[i];
+                
+                if (!customChannel.name || !customChannel.number) continue;
+                
+                // Write channel
+                xw.startElement('channel');
+                xw.writeAttribute('id', customChannel.number);
+                xw.startElement('display-name');
+                xw.writeAttribute('lang', 'en');
+                xw.text(customChannel.name);
+                xw.endElement(); // display-name
+                xw.endElement(); // channel
+                
+                // Create 24/7 programming for the next GUIDE_DAYS
+                Logger.info(`Creating ${customChannel.name} - ${customChannel.number} guide data (24/7 stream).`);
+                
+                const now = Date.now();
+                const oneDayMs = 24 * 60 * 60 * 1000;
+                const programDuration = 6 * 60 * 60 * 1000; // 6 hour blocks for simplicity
+                
+                // Start from midnight of today
+                const startOfDay = new Date();
+                startOfDay.setHours(0, 0, 0, 0);
+                let currentTime = startOfDay.getTime();
+                
+                // Generate programs for GUIDE_DAYS
+                const endTime = now + (GUIDE_DAYS * oneDayMs);
+                
+                while (currentTime < endTime) {
+                    const programEnd = currentTime + programDuration;
+                    
+                    // Only include programs that haven't ended yet
+                    if (programEnd > now) {
+                        const startDate = JSDate.getXMLDateString(currentTime);
+                        const endDate = JSDate.getXMLDateString(programEnd);
+                        
+                        xw.startElement('programme');
+                        xw.writeAttribute('start', startDate);
+                        xw.writeAttribute('stop', endDate);
+                        xw.writeAttribute('channel', customChannel.number);
+                        
+                        xw.startElement('title');
+                        xw.writeAttribute('lang', 'en');
+                        xw.text(customChannel.name);
+                        xw.endElement(); // title
+                        
+                        xw.startElement('desc');
+                        xw.writeAttribute('lang', 'en');
+                        xw.text(`24/7 live stream: ${customChannel.name}`);
+                        xw.endElement(); // desc
+                        
+                        xw.endElement(); // programme
+                    }
+                    
+                    currentTime = programEnd;
+                }
+            }
+        }
+
         if (INCLUDE_PSEUDOTV_GUIDE) {
             if (FS.fileExists(path.join(DIR_NAME, "/.pseudotv/xmltv.xml"))) {
                 const personal = FS.readFile(path.join(DIR_NAME, "/.pseudotv/xmltv.xml"));
