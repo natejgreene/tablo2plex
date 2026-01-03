@@ -1388,6 +1388,45 @@ async function parseLineup(lineup = undefined) {
             }
         }
 
+        return 1;
+    } catch (error) {
+        Logger.error("Issue with creating new lineup file.", error);
+
+        return await exit();
+    }
+}
+
+/**
+ * Requests new channel line up data
+ */
+async function makeLineup() {
+    await readCreds();
+
+    var host = `lighthousetv.ewscloud.com`;
+
+    var path = `/api/v2/account/${CREDS_DATA.Lighthouse}/guide/channels/`;
+
+    const headers = {};
+
+    headers['Lighthouse'] = CREDS_DATA.Lighthouse;
+
+    headers['Accept'] = '*/*';
+
+    headers['User-Agent'] = 'Tablo-FAST/2.0.0 (Mobile; iPhone; iOS 16.6)';
+
+    headers["Authorization"] = CREDS_DATA.lighthousetvAuthorization;
+
+    headers['Content-Type'] = 'application/json';
+
+    try {
+        const retData = await makeHTTPSRequest("GET", host, path, headers);
+
+        /**
+         * @type {channelLineup[]}
+         */
+        const lineupParse = JSON.parse(retData);
+
+        FS.writeJSON(JSON.stringify(lineupParse, null, 4), LINEUP_FILE);
 
         await parseLineup(lineupParse);
     } catch (error) {
