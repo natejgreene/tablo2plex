@@ -224,6 +224,17 @@ async function handleStreams(req, res, ip, channelId, selectedChannel){
         }
 
         // Original Tablo channel handling
+        const channelReq = await reqTabloDevice("POST", CREDS_DATA.device.url, `/guide/channels/${channelId}/watch`, CREDS_DATA.UUID, "lh");
+
+        try {
+            /**
+             * @type {{token: string, expires: string, keepalive: number, playlist_url: string, video_details: {container_format: string, flags: any[]}}}
+             */
+            const channelJSON = JSON.parse(channelReq.toString());
+            // check if there is a playlist_url
+            if (channelJSON.playlist_url == undefined) {
+                Logger.error('playlist_url missing from requested channel:');
+
                 Logger.error(channelJSON);
 
                 Logger.error(selectedChannel);
