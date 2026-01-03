@@ -12,14 +12,14 @@ const VERSION = pack.version;
 
 /**
  * How the app parses arguments passed to it at the command line level.
- * 
+ *
  * @class
  */
 const PROGRAM = new Command();
 
 /**
  * For console log colors
- * 
+ *
  * @readonly
  * @enum {string}
  */
@@ -78,7 +78,7 @@ const ARGV = PROGRAM.opts();
 
 /**
  * Path where server outputs files.
- * 
+ *
  * @returns {string} directory name
  */
 function _get_dir_name() {
@@ -96,14 +96,14 @@ function _get_dir_name() {
 
 /**
  * Path where server outputs files.
- * 
+ *
  * Used in finding files to load.
  */
 const DIR_NAME = _get_dir_name();
 
 /**
  * confirms username to use, will prompt otherwise
- * 
+ *
  * @returns {string|undefined} port
  */
 function _confirm_username() {
@@ -124,7 +124,7 @@ const USER_NAME = _confirm_username();
 
 /**
  * confirms password to use, will prompt otherwise
- * 
+ *
  * @returns {string|undefined} port
  */
 function _confirm_password() {
@@ -150,7 +150,7 @@ const AUTO_PROFILE = USER_NAME != undefined ? true : false;
 
 /**
  * For confirming log level for Logger.
- * 
+ *
  * @returns {string} string
  */
 function _confirm_log_type() {
@@ -178,7 +178,7 @@ const LOG_TYPE = _confirm_log_type();
 
 /**
  * For confirming ffmpeg log level.
- * 
+ *
  * @returns {string} string
  */
 function _confirm_ffmpeg_log_level() {
@@ -207,9 +207,9 @@ function _confirm_ffmpeg_log_level() {
  */
 const FFMPEG_LOG_LEVEL = _confirm_ffmpeg_log_level();
 
-/** 
+/**
  * Master function for finding machine IP address.
- * 
+ *
  * @returns {string} example ``'127.0.0.1'``
  */
 function _get_local_IPv4_address() {
@@ -244,7 +244,7 @@ const IP_ADDRESS = _get_local_IPv4_address();
 
 /**
  * confirms port in use
- * 
+ *
  * @returns {string} port
  */
 function _confirm_port() {
@@ -265,8 +265,8 @@ const PORT = _confirm_port();
 
 /**
  * Get a boolean string
- * 
- * @param {string|undefined} value 
+ *
+ * @param {string|undefined} value
  */
 function _confirm_boolean(value) {
     if (typeof value == "boolean") {
@@ -376,7 +376,7 @@ const GUIDE_DAYS = _confirm_guide_days();
 
 /**
  * for creating and confirming the server URL for the server.
- * 
+ *
  * @param {string} PORT
  * @returns {string} url string
  */
@@ -386,14 +386,14 @@ function _confirm_url(PORT) {
 
 /**
  * URL of the machine the server connects to.
- * 
+ *
  * As ``http://${IP_ADDRESS}:${PORT}``
  */
 const SERVER_URL = _confirm_url(PORT);
 
 /**
  * For creating log level for Logger
- * 
+ *
  * @returns {number} log number
  */
 function _confirm_log_level() {
@@ -525,6 +525,31 @@ function _confirm_device() {
 const TABLO_DEVICE = _confirm_device();
 
 /**
+ * Parse custom channels from environment variable
+ * Expected format: JSON array of objects with name, number, and url properties
+ * Example: [{"name":"MN Traffic Cam","number":"900.1","url":"https://video.dot.state.mn.us/public/C1495.stream/playlist.m3u8"}]
+ */
+function _parse_custom_channels() {
+    try {
+        if (process.env.CUSTOM_CHANNELS) {
+            const parsed = JSON.parse(process.env.CUSTOM_CHANNELS);
+            if (Array.isArray(parsed)) {
+                return parsed;
+            }
+        }
+    } catch (error) {
+        Logger.error("Failed to parse CUSTOM_CHANNELS environment variable:", error);
+    }
+    return [];
+}
+
+/**
+ * Custom channels configuration
+ * @type {Array<{name: string, number: string, url: string}>}
+ */
+const CUSTOM_CHANNELS = _parse_custom_channels();
+
+/**
  * Source path to creds.bin
  */
 const CREDS_FILE = path.join(DIR_NAME, "creds.bin");
@@ -563,5 +588,6 @@ module.exports = {
     FFMPEG_LOG_LEVEL,
     CREDS_FILE,
     SCHEDULE_LINEUP,
-    SCHEDULE_GUIDE
+    SCHEDULE_GUIDE,
+    CUSTOM_CHANNELS
 };

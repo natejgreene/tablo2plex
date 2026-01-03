@@ -31,7 +31,8 @@ const {
     LOG_TYPE,
     CREATE_XML,
     FFMPEG_LOG_LEVEL,
-    CREDS_FILE
+    CREDS_FILE,
+    CUSTOM_CHANNELS
 } = require('./Constants');
 const Encryption = require('./Encryption');
 const FS = require('./FS');
@@ -81,25 +82,25 @@ var CURRENT_STREAMS = 0;
 
 /**
  * @typedef {OtaType | OttType} channelLineup
- * 
+ *
  * @typedef {Object} OtaType
  * @property {string} identifier
  * @property {string} name
  * @property {"ota"} kind - The kind property must be "ota".
  * @property {Logos[]} logos
  * @property {Kind} ota - The ota property with data.
- * 
+ *
  * @typedef {Object} OttType
  * @property {string} identifier
  * @property {string} name
  * @property {"ott"} kind - The kind property must be "ota".
  * @property {Logos[]} logos
  * @property {Kind} ott - The ott property with data.
- * 
+ *
  * @typedef Logos
  * @property {string} kind
  * @property {string} url
- * 
+ *
  * @typedef Kind
  * @property {number} major
  * @property {number} minor
@@ -112,7 +113,7 @@ var CURRENT_STREAMS = 0;
 
 /**
  * @typedef {episodeType | sportEventType | movieAiringType} guideInfo
- * 
+ *
  * @typedef episodeType
  * @property {string} identifier
  * @property {string} title
@@ -127,7 +128,7 @@ var CURRENT_STREAMS = 0;
  * @property {number} duration
  * @property {{identifier:string, title:string, sortTitle:string, sectionTitle:string}} show
  * @property {{season: {kind:string, number?:number, string?:string}, episodeNumber:number|null, originalAirDate:string|null, rating:string|null}} episode
- * 
+ *
  * @typedef movieAiringType
  * @property {string} identifier
  * @property {string} title
@@ -142,7 +143,7 @@ var CURRENT_STREAMS = 0;
  * @property {number} duration
  * @property {{identifier:string, title:string, sortTitle:string, sectionTitle:string}} show
  * @property {{releaseYear:number, filmRating:string|null, qualityRating:number|null }} movieAiring
- * 
+ *
  * @typedef sportEventType
  * @property {string} identifier
  * @property {string} title
@@ -157,7 +158,7 @@ var CURRENT_STREAMS = 0;
  * @property {number} duration
  * @property {{identifier:string, title:string, sortTitle:string, sectionTitle:string}} show
  * @property {{season:string|null}} sportEvent
- * 
+ *
  * @typedef Images
  * @property {string} kind
  * @property {string} url
@@ -165,26 +166,64 @@ var CURRENT_STREAMS = 0;
 
 /**
  * Function to handle Tablo streams
- * 
+ *
  * @param {Request} req
  * @param {Response} res
  * @param {string} ip
- * @param {string} channelId 
+ * @param {string} channelId
  * @param {{GuideNumber:string, GuideName:string, URL:string, type:string, srcURL:string, streamUrl: string}}  selectedChannel
  */
 async function handleStreams(req, res, ip, channelId, selectedChannel){
     if (CURRENT_STREAMS < TUNER_COUNT) {
-        const channelReq = await reqTabloDevice("POST", CREDS_DATA.device.url, `/guide/channels/${channelId}/watch`, CREDS_DATA.UUID, "lh");
+        // Handle custom channels differently
+        if (selectedChannel.type === "custom") {
+            try {
+                Logger.info(`Client ${ip.replace(/::ffff:/, "")} connected to ${channelId} (Custom Channel: ${selectedChannel.GuideName}), spawning ffmpeg stream.`);
 
-        try {
-            /**
-             * @type {{token: string, expires: string, keepalive: number, playlist_url: string, video_details: {container_format: string, flags: any[]}}}
-             */
-            const channelJSON = JSON.parse(channelReq.toString());
-            // check if there is a playlist_url
-            if (channelJSON.playlist_url == undefined) {
-                Logger.error('playlist_url missing from requested channel:');
+                const ffmpeg = spawn('ffmpeg', [
+                    '-i', selectedChannel.streamUrl,
+                    '-c', 'copy',
+                    '-f', 'mpegts',
+                    '-v', `repeat+level+${FFMPEG_LOG_LEVEL}`,
+                    'pipe:1'
+                ]);
 
+                res.setHeader('Content-Type', 'video/mp2t');
+
+                ffmpeg.stdout.pipe(res);
+
+                ffmpeg.stderr.on('data', (data) => {
+                    switch (FFMPEG_LOG_LEVEL) {
+                        case "info":
+                            Logger.info(`[ffmpeg] ${data}`);
+                            break;
+                        case "debug":
+                            Logger.debug(`[ffmpeg] ${data}`);
+                            break;
+                        case "warning":
+                            Logger.warn(`[ffmpeg] ${data}`);
+                            break;
+                        default:
+                            Logger.error(`[ffmpeg] ${data}`);
+                            break;
+                    }
+                });
+
+                req.on('close', () => {
+                    Logger.info(`Client ${ip && ip.replace(/::ffff:/, "")} disconnected from ${channelId} (Custom Channel), killing ffmpeg`);
+                    ffmpeg.kill('SIGINT');
+                });
+
+                return;
+            } catch (error) {
+                // @ts-ignore
+                Logger.error('Error starting custom channel stream:', error.message);
+                res.status(500).send('Failed to start custom channel stream');
+                return;
+            }
+        }
+
+        // Original Tablo channel handling
                 Logger.error(channelJSON);
 
                 Logger.error(selectedChannel);
@@ -307,9 +346,9 @@ function makeDiscover(){
 
 /**
  * lineup endpint
- * 
- * @param {Request} req 
- * @param {Response} res 
+ *
+ * @param {Request} req
+ * @param {Response} res
  */
 async function _lineup(req, res) {
 var lineup = Object.values(LINEUP_DATA);
@@ -327,13 +366,13 @@ var lineup = Object.values(LINEUP_DATA);
 
 /**
  * Makes Tablo device request
- * 
- * @param {string} method 
- * @param {string} host 
- * @param {string} path 
- * @param {string} msg 
- * @param {{"Content-Type"?:string,Connection?:string,Date?:string,Accept?:string,"User-Agent"?:string,"Content-Length"?:string,Authorization?:string}} headers 
- * @param {string} params 
+ *
+ * @param {string} method
+ * @param {string} host
+ * @param {string} path
+ * @param {string} msg
+ * @param {{"Content-Type"?:string,Connection?:string,Date?:string,Accept?:string,"User-Agent"?:string,"Content-Length"?:string,Authorization?:string}} headers
+ * @param {string} params
  * @returns {Promise<Buffer>}
  */
 async function makeTabloRequest(method, host, path, msg = "", headers = {}, params = "") {
@@ -391,10 +430,10 @@ async function makeTabloRequest(method, host, path, msg = "", headers = {}, para
 
 /**
  * Handles all Tablo device requests
- * 
- * @param {string} method 
- * @param {string} host 
- * @param {string} path 
+ *
+ * @param {string} method
+ * @param {string} host
+ * @param {string} path
  * @param {string} UUID
  * @param {string} params
  */
@@ -429,10 +468,10 @@ async function reqTabloDevice(method, host, path, UUID, params) {
 };
 
 /**
- * channel end point 
- * 
- * @param {Request} req 
- * @param {Response} res 
+ * channel end point
+ *
+ * @param {Request} req
+ * @param {Response} res
  */
 async function _channel(req, res, ) {
     const ip = req.ip || "";
@@ -466,9 +505,9 @@ async function _channel(req, res, ) {
 
 /**
  * guide.xml end point
- * 
- * @param {Request} req 
- * @param {Response} res 
+ *
+ * @param {Request} req
+ * @param {Response} res
  */
 async function _guide_serve(req, res) {
     try {
@@ -491,12 +530,12 @@ async function _guide_serve(req, res) {
 
 /**
  * basic https request
- * 
- * @param {string} method 
- * @param {string} hostname 
- * @param {string} path 
- * @param {any} headers 
- * @param {string|Buffer} data 
+ *
+ * @param {string} method
+ * @param {string} hostname
+ * @param {string} path
+ * @param {any} headers
+ * @param {string|Buffer} data
  * @param {boolean} justHeaders
  * @returns {Promise<any>}
  */
@@ -898,8 +937,8 @@ async function readCreds() {
 
 /**
  * Creates XML guide data from downloaded guide files
- * 
- * @param {channelLineup[]} lineUp 
+ *
+ * @param {channelLineup[]} lineUp
  */
 async function parseGuideData(lineUp) {
     try {
@@ -1113,7 +1152,7 @@ async function parseGuideData(lineUp) {
                 process.stdout.clearLine(1);
 
                 process.stdout.moveCursor(0, -1);
-                
+
                 process.stdout.clearLine(1);
 
                 process.stdout.cursorTo(0);
@@ -1150,7 +1189,7 @@ async function parseGuideData(lineUp) {
 }
 
 /**
- * Downloads guide files 
+ * Downloads guide files
  */
 async function cacheGuideData() {
     const tempFolder = path.join(DIR_NAME, "tempGuide");
@@ -1232,7 +1271,7 @@ async function cacheGuideData() {
                         const dataIn1 = await makeHTTPSRequest("GET", host, reqPathTD, headers);
 
                         FS.writeJSON(dataIn1, file);
-                        
+
                         FS.loadingBar(totalFiles, ++currentFile);
                     } else {
                         FS.loadingBar(totalFiles, ++currentFile);
@@ -1273,8 +1312,8 @@ async function cacheGuideData() {
 
 /**
  * Creates channel lineup data
- * 
- * @param {channelLineup[]|undefined} lineup 
+ *
+ * @param {channelLineup[]|undefined} lineup
  */
 async function parseLineup(lineup = undefined) {
     /**
@@ -1310,45 +1349,34 @@ async function parseLineup(lineup = undefined) {
             }
         }
 
-        return 1;
-    } catch (error) {
-        Logger.error("Issue with creating new lineup file.", error);
+        // Add custom channels
+        if (CUSTOM_CHANNELS && CUSTOM_CHANNELS.length > 0) {
+            Logger.info(`Adding ${CUSTOM_CHANNELS.length} custom channel(s) to lineup`);
 
-        return await exit();
-    }
-}
+            for (let i = 0; i < CUSTOM_CHANNELS.length; i++) {
+                const customChannel = CUSTOM_CHANNELS[i];
 
-/**
- * Requests new channel line up data
- */
-async function makeLineup() {
-    await readCreds();
+                if (!customChannel.name || !customChannel.number || !customChannel.url) {
+                    Logger.error("Invalid custom channel configuration (missing name, number, or url):", customChannel);
+                    continue;
+                }
 
-    var host = `lighthousetv.ewscloud.com`;
+                // Create a unique identifier for the custom channel
+                const customId = `custom-${i}`;
 
-    var path = `/api/v2/account/${CREDS_DATA.Lighthouse}/guide/channels/`;
+                LINEUP_DATA[customId] = {
+                    GuideNumber: customChannel.number,
+                    GuideName: customChannel.name,
+                    URL: `${SERVER_URL}/channel/${customId}`,
+                    type: "custom",
+                    streamUrl: customChannel.url,
+                    srcURL: customChannel.url
+                };
 
-    const headers = {};
+                Logger.info(`Added custom channel: ${customChannel.name} (${customChannel.number})`);
+            }
+        }
 
-    headers['Lighthouse'] = CREDS_DATA.Lighthouse;
-
-    headers['Accept'] = '*/*';
-
-    headers['User-Agent'] = 'Tablo-FAST/2.0.0 (Mobile; iPhone; iOS 16.6)';
-
-    headers["Authorization"] = CREDS_DATA.lighthousetvAuthorization;
-
-    headers['Content-Type'] = 'application/json';
-
-    try {
-        const retData = await makeHTTPSRequest("GET", host, path, headers);
-
-        /**
-         * @type {channelLineup[]}
-         */
-        const lineupParse = JSON.parse(retData);
-
-        FS.writeJSON(JSON.stringify(lineupParse, null, 4), LINEUP_FILE);
 
         await parseLineup(lineupParse);
     } catch (error) {

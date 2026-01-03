@@ -108,6 +108,23 @@ Use the ``.env`` file to set the options you would like to use with the Tablo de
 |``USER_PASS``             | ``-w,--pass``      | `string`  | Password to use for when creds.bin isn't present. (Disabled in `.env` by default)                                                                                                                                                       |
 |``IP_ADDRESS``            | ``-a,--ip_address``| `string`  | Set the IP Address of Tablo2Plex add statically. (Disabled in `.env` by default)                                                                                                                                                        |
 |``GUIDE_UPDATE_INTERVAL`` | ``-e,--guide``     | `number`  | How often to update your XML guide data in hours. Default ``24``                                                                                                                                                                        |
+|``CUSTOM_CHANNELS``       | ``-none-``         | `JSON`    | Add custom M3U8 stream channels. Format: JSON array of objects with `name`, `number`, and `url` properties. Example: `[{"name":"MN Traffic","number":"900.1","url":"https://video.dot.state.mn.us/public/C1495.stream/playlist.m3u8"}]` |
+
+#### Custom Channels
+
+You can add your own custom M3U8 stream channels to the lineup by configuring the `CUSTOM_CHANNELS` environment variable in your `.env` file. These channels will appear alongside your Tablo channels in Plex.
+
+**Format:** JSON array with objects containing:
+- `name`: Channel display name
+- `number`: Channel number (can use decimals like "900.1")
+- `url`: Direct M3U8 stream URL
+
+**Example:**
+```json
+CUSTOM_CHANNELS=[{"name":"MN Traffic Cam","number":"900.1","url":"https://video.dot.state.mn.us/public/C1495.stream/playlist.m3u8"},{"name":"Another Stream","number":"900.2","url":"https://example.com/stream.m3u8"}]
+```
+
+**Note:** Custom channels bypass Tablo authentication and stream directly from the provided URLs. They don't count against your Tablo tuner limit.
 
 ### Plex Configuration
 
