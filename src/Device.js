@@ -181,14 +181,36 @@ async function handleStreams(req, res, ip, channelId, selectedChannel){
                 Logger.info(`Client ${ip.replace(/::ffff:/, "")} connected to ${channelId} (Custom Channel: ${selectedChannel.GuideName}), spawning ffmpeg stream.`);
 
                 const ffmpeg = spawn('ffmpeg', [
+                    // Input options for better stream handling
+                    '-reconnect', '1',
+                    '-reconnect_streamed', '1',
+                    '-reconnect_delay_max', '5',
+                    '-fflags', '+genpts+discardcorrupt',
+                    '-thread_queue_size', '512',
                     '-i', selectedChannel.streamUrl,
-                    '-c', 'copy',
+                    // Video processing
+                    '-map', '0:v:0',
+                    '-c:v', 'copy',
+                    // Audio processing
+                    '-map', '0:a:0?',
+                    '-c:a', 'copy',
+                    // Output options optimized for Plex
                     '-f', 'mpegts',
+                    '-mpegts_flags', '+initial_discontinuity',
+                    '-flush_packets', '1',
+                    '-max_delay', '500000',
+                    '-max_interleave_delta', '0',
+                    // Buffering and performance
+                    '-avoid_negative_ts', 'make_zero',
+                    '-fflags', '+genpts',
+                    '-start_at_zero',
+                    // Logging
                     '-v', `repeat+level+${FFMPEG_LOG_LEVEL}`,
                     'pipe:1'
                 ]);
 
                 res.setHeader('Content-Type', 'video/mp2t');
+                res.setHeader('Connection', 'keep-alive');
 
                 ffmpeg.stdout.pipe(res);
 
@@ -249,9 +271,34 @@ async function handleStreams(req, res, ip, channelId, selectedChannel){
             Logger.debug(channelJSON);
 
             const ffmpeg = spawn('ffmpeg', [
+                // Input options for better HLS stream handling
+                '-reconnect', '1',
+                '-reconnect_streamed', '1',
+                '-reconnect_delay_max', '5',
+                '-fflags', '+genpts+discardcorrupt',
+                '-thread_queue_size', '512',
                 '-i', channelJSON.playlist_url,
-                '-c', 'copy',
+                // Video processing - copy to avoid transcoding overhead
+                '-map', '0:v:0',
+                '-c:v', 'copy',
+                // Audio processing - copy to maintain quality
+                '-map', '0:a:0?',
+                '-c:a', 'copy',
+                // Output options optimized for Plex Live TV
                 '-f', 'mpegts',
+                '-mpegts_flags', '+initial_discontinuity',
+                '-mpegts_copyts', '1',
+                '-flush_packets', '1',
+                '-max_delay', '500000',
+                '-max_interleave_delta', '0',
+                // Timestamp handling for better seeking and playback
+                '-avoid_negative_ts', 'make_zero',
+                '-fflags', '+genpts',
+                '-start_at_zero',
+                // Muxer settings for better compatibility
+                '-muxdelay', '0',
+                '-muxpreload', '0',
+                // Logging
                 '-v', `repeat+level+${FFMPEG_LOG_LEVEL}`,
                 'pipe:1'
             ]);
@@ -265,6 +312,7 @@ async function handleStreams(req, res, ip, channelId, selectedChannel){
             }
 
             res.setHeader('Content-Type', 'video/mp2t');
+            res.setHeader('Connection', 'keep-alive');
 
             ffmpeg.stdout.pipe(res);
 
@@ -1176,9 +1224,9 @@ async function parseGuideData(lineUp) {
         if (CUSTOM_CHANNELS && CUSTOM_CHANNELS.length > 0) {
             for (let i = 0; i < CUSTOM_CHANNELS.length; i++) {
                 const customChannel = CUSTOM_CHANNELS[i];
-                
+
                 if (!customChannel.name || !customChannel.number) continue;
-                
+
                 // Write channel
                 xw.startElement('channel');
                 xw.writeAttribute('id', customChannel.number);
@@ -1187,48 +1235,48 @@ async function parseGuideData(lineUp) {
                 xw.text(customChannel.name);
                 xw.endElement(); // display-name
                 xw.endElement(); // channel
-                
+
                 // Create 24/7 programming for the next GUIDE_DAYS
                 Logger.info(`Creating ${customChannel.name} - ${customChannel.number} guide data (24/7 stream).`);
-                
+
                 const now = Date.now();
                 const oneDayMs = 24 * 60 * 60 * 1000;
                 const programDuration = 6 * 60 * 60 * 1000; // 6 hour blocks for simplicity
-                
+
                 // Start from midnight of today
                 const startOfDay = new Date();
                 startOfDay.setHours(0, 0, 0, 0);
                 let currentTime = startOfDay.getTime();
-                
+
                 // Generate programs for GUIDE_DAYS
                 const endTime = now + (GUIDE_DAYS * oneDayMs);
-                
+
                 while (currentTime < endTime) {
                     const programEnd = currentTime + programDuration;
-                    
+
                     // Only include programs that haven't ended yet
                     if (programEnd > now) {
                         const startDate = JSDate.getXMLDateString(currentTime);
                         const endDate = JSDate.getXMLDateString(programEnd);
-                        
+
                         xw.startElement('programme');
                         xw.writeAttribute('start', startDate);
                         xw.writeAttribute('stop', endDate);
                         xw.writeAttribute('channel', customChannel.number);
-                        
+
                         xw.startElement('title');
                         xw.writeAttribute('lang', 'en');
                         xw.text(customChannel.name);
                         xw.endElement(); // title
-                        
+
                         xw.startElement('desc');
                         xw.writeAttribute('lang', 'en');
                         xw.text(`24/7 live stream: ${customChannel.name}`);
                         xw.endElement(); // desc
-                        
+
                         xw.endElement(); // programme
                     }
-                    
+
                     currentTime = programEnd;
                 }
             }
@@ -1282,16 +1330,19 @@ async function cacheGuideData() {
      */
     const lineup = FS.readJSON(LINEUP_FILE);
 
+    // Filter out custom channels - they don't have guide data from Tablo
+    const tabloChannels = lineup.filter(el => el.kind === "ota" || el.kind === "ott");
+
     const neededFiles = [];
 
-    const totalFiles = lineup.length * GUIDE_DAYS;
+    const totalFiles = tabloChannels.length * GUIDE_DAYS;
 
     var currentFile = 0;
 
     Logger.info(`Prepping ${totalFiles} needed guide files.`);
 
-    for (let i = 0; i < lineup.length; i++) {
-        const el = lineup[i];
+    for (let i = 0; i < tabloChannels.length; i++) {
+        const el = tabloChannels[i];
 
         for (let z = 0; z < guideDays.length; z++) {
             const guideDay = guideDays[z];
@@ -1376,7 +1427,8 @@ async function cacheGuideData() {
 
     FS.deleteUnlistedFiles(tempFolder, neededFiles);
 
-    const xmlData = await parseGuideData(lineup);
+    // Pass only Tablo channels to parseGuideData - custom channels get their guide data generated separately
+    const xmlData = await parseGuideData(tabloChannels);
 
     FS.writeFile(xmlData, GUIDE_FILE);
 
