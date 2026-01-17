@@ -231,9 +231,35 @@ async function handleStreams(req, res, ip, channelId, selectedChannel){
                     }
                 });
 
-                req.on('close', () => {
+                // Cleanup function to kill ffmpeg process
+                let isCleanedUp = false;
+                const cleanup = () => {
+                    if (isCleanedUp) return;
+                    isCleanedUp = true;
+
                     Logger.info(`Client ${ip && ip.replace(/::ffff:/, "")} disconnected from ${channelId} (Custom Channel), killing ffmpeg`);
+                    
+                    // Try graceful shutdown first
                     ffmpeg.kill('SIGINT');
+                    
+                    // Force kill after 2 seconds if still running
+                    setTimeout(() => {
+                        try {
+                            ffmpeg.kill('SIGKILL');
+                        } catch (e) {
+                            // Process already exited
+                        }
+                    }, 2000);
+                };
+
+                // Handle all possible disconnect scenarios
+                req.on('close', cleanup);
+                req.on('error', cleanup);
+                res.on('finish', cleanup);
+                res.on('error', cleanup);
+                res.on('close', cleanup);
+                ffmpeg.on('exit', () => {
+                    isCleanedUp = true;
                 });
 
                 return;
@@ -293,7 +319,6 @@ async function handleStreams(req, res, ip, channelId, selectedChannel){
                 '-max_interleave_delta', '0',
                 // Timestamp handling for better seeking and playback
                 '-avoid_negative_ts', 'make_zero',
-                '-fflags', '+genpts',
                 '-start_at_zero',
                 // Muxer settings for better compatibility
                 '-muxdelay', '0',
@@ -333,16 +358,40 @@ async function handleStreams(req, res, ip, channelId, selectedChannel){
                 }
             });
 
-            req.on('close', () => {
+            // Cleanup function to kill ffmpeg process
+            let isCleanedUp = false;
+            const cleanup = () => {
+                if (isCleanedUp) return;
+                isCleanedUp = true;
+
                 if (selectedChannel.type == "ota") {
                     CURRENT_STREAMS -= 1;
-
                     Logger.info(`${C_HEX.red_yellow}[${CURRENT_STREAMS}/${TUNER_COUNT}]${C_HEX.reset} Client ${ip && ip.replace(/::ffff:/, "")} disconnected from ${channelId}, killing ffmpeg`);
                 } else {
                     Logger.info(`${C_HEX.red_yellow}[${CURRENT_STREAMS}/${TUNER_COUNT}]${C_HEX.reset} Client ${ip && ip.replace(/::ffff:/, "")} disconnected from ${channelId} (IPTV), killing ffmpeg`);
                 }
 
+                // Try graceful shutdown first
                 ffmpeg.kill('SIGINT');
+                
+                // Force kill after 2 seconds if still running
+                setTimeout(() => {
+                    try {
+                        ffmpeg.kill('SIGKILL');
+                    } catch (e) {
+                        // Process already exited
+                    }
+                }, 2000);
+            };
+
+            // Handle all possible disconnect scenarios
+            req.on('close', cleanup);
+            req.on('error', cleanup);
+            res.on('finish', cleanup);
+            res.on('error', cleanup);
+            res.on('close', cleanup);
+            ffmpeg.on('exit', () => {
+                isCleanedUp = true;
             });
 
             return;
